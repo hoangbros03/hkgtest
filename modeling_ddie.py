@@ -1127,3 +1127,157 @@ class MyModel(BertPreTrainedModel):
                 sd[p_name] = self.accumulated_params[k].state_dict()[p_name_]
         return sd
 
+
+
+
+class MyTextOnlyModel(BertPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.num_labels = config.num_labels
+        self.config = config
+        self.config.output_attentions = True
+        self.config.output_hidden_states = True
+
+        self.bert = BertModel(config)
+        #self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+
+    def init_modules(self, model_args, kg_emb_file):
+        if not model_args.baseline:
+            word_emb_table = self.bert.embeddings.word_embeddings.weight
+
+        self.dropout = nn.Dropout(model_args.dropout_ratio)
+
+        self.use_cls_rep = model_args.use_cls_rep
+        self.cls_linear = nn.Linear(self.config.hidden_size, self.num_labels)
+
+        classifier_input_size = 0
+        if self.use_cls_rep: classifier_input_size += self.config.hidden_size
+        self.middle_linear = nn.Linear(classifier_input_size, self.config.hidden_size)
+        self.classifier = nn.Linear(self.config.hidden_size, self.num_labels)
+        #self.classifier = nn.Linear(classifier_input_size, self.num_labels)
+
+
+    def init_params(self, device):
+        self.current_params = {
+            'bert': self.bert,
+            'cls_linear': self.cls_linear,
+            'middle_linear': self.middle_linear,
+            'classifier': self.classifier,
+        }
+        self.accumulated_params = {}
+        for k, v in self.current_params.items():
+            self.accumulated_params[k] = copy.deepcopy(v).to(device)
+        self.update_cnt = 1
+
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        labels=None,
+        entity_position_ids=None,
+        evaluate=None
+        ):
+
+        bsz, msl = input_ids.shape
+
+        if evaluate is None:
+            params = self.current_params
+        else:
+            params = self.accumulated_params
+        
+        outputs = params['bert'](
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+        )
+
+        hidden_states = outputs[0]
+        pooled_output = outputs[1]
+        #assert len(outputs) == 3, "Confirm bert model outputs contain LastHiddenStates, PooledOutput, Attentions" 
+        #attentions = outputs[2]
+
+        cls_hidden_states = hidden_states[:,0]
+        e1_hidden_states = hidden_states[torch.arange(bsz), entity_position_ids[:, 0]]
+        e2_hidden_states = hidden_states[torch.arange(bsz), entity_position_ids[:, 1]]
+        
+        if self.combination_method == 'cat':
+            classifier_input = []
+      
+            classifier_input += [cls_hidden_states]
+            middle = params['middle_linear'](self.dropout(torch.cat(classifier_input, dim=1)))
+            logits = params['classifier'](self.dropout(F.gelu(middle)))
+            
+            #outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
+            outputs = (logits,)
+
+        elif self.combination_method == 'loss':
+            logits_list = []
+            if self.use_cls_rep:
+                cls_logits = params['cls_linear'](self.dropout(cls_hidden_states))
+                logits_list.append(cls_logits)
+            if self.use_mention_rep:
+                mention_logits = params['mention_linear'](self.dropout(torch.cat((e1_hidden_states, e2_hidden_states), dim=1)))
+                logits_list.append(mention_logits)
+            if self.use_kg_rep:
+                kg_logits = params['kg_linear'](self.dropout(torch.cat((e1_kg_hidden_states, e2_kg_hidden_states), dim=1)))
+                logits_list.append(kg_logits)
+            logits = None
+            for x in logits_list:
+                if logits is None:
+                    logits = F.softmax(x, dim=-1)
+                else:
+                    logits += F.softmax(x, dim=-1)
+            #outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
+            outputs = (logits,)
+
+        if labels is not None:
+            if self.num_labels == 1:
+                #  We are doing regression
+                loss_fct = MSELoss()
+                loss = loss_fct(logits.view(-1), labels.view(-1))
+            else:
+                loss_fct = CrossEntropyLoss()
+                if self.combination_method == 'cat':
+                    loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                elif self.combination_method == 'loss':
+                    loss = None
+                    for x in logits_list:
+                        loss_ = loss_fct(x.view(-1, self.num_labels), labels.view(-1))
+                        if loss is None:
+                            loss = loss_
+                        else:
+                            loss += loss_
+            outputs = (loss,) + outputs
+
+        if evaluate is None:
+            with torch.no_grad():
+                for k, v in params.items():
+                    for x, y in zip(v.parameters(), self.accumulated_params[k].parameters()):
+                        y *= self.update_cnt
+                        y += x
+                        y /= (self.update_cnt+1)
+                self.update_cnt += 1
+
+        return outputs  # if evaluate -> (logits, attentions), else -> (loss, logits)
+
+
+    # For saving model weights
+    def return_averaged_sd(self):
+        #for k, v in self.current_params.items():
+        #    for x, y in zip(v.parameters(), self.accumulated_params[k].parameters()):
+        #        x = y
+        sd = self.state_dict()
+        for k, v in self.current_params.items():
+            for p_name_ in v.state_dict():
+                p_name = '.'.join([k, p_name_])
+                sd[p_name] = self.accumulated_params[k].state_dict()[p_name_]
+        return sd
+
