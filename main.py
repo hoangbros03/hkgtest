@@ -217,6 +217,8 @@ def main():
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     model_args.max_seq_length = data_args.max_seq_length
 
+    print(training_args)
+    training_args.eval_strategy = 'epoch'
     if (
         os.path.exists(training_args.output_dir)
         and os.listdir(training_args.output_dir)
