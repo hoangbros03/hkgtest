@@ -1153,7 +1153,7 @@ class MyTextOnlyModel(BertPreTrainedModel):
         self.cls_linear = nn.Linear(self.config.hidden_size, self.num_labels)
 
         classifier_input_size = 0
-        if self.use_cls_rep: classifier_input_size += self.config.hidden_size
+        classifier_input_size += self.config.hidden_size
         self.middle_linear = nn.Linear(classifier_input_size, self.config.hidden_size)
         self.classifier = nn.Linear(self.config.hidden_size, self.num_labels)
         #self.classifier = nn.Linear(classifier_input_size, self.num_labels)
@@ -1201,8 +1201,6 @@ class MyTextOnlyModel(BertPreTrainedModel):
 
         hidden_states = outputs[0]
         pooled_output = outputs[1]
-        #assert len(outputs) == 3, "Confirm bert model outputs contain LastHiddenStates, PooledOutput, Attentions" 
-        #attentions = outputs[2]
 
         cls_hidden_states = hidden_states[:,0]
         e1_hidden_states = hidden_states[torch.arange(bsz), entity_position_ids[:, 0]]
@@ -1214,7 +1212,7 @@ class MyTextOnlyModel(BertPreTrainedModel):
             classifier_input += [cls_hidden_states]
             middle = params['middle_linear'](self.dropout(torch.cat(classifier_input, dim=1)))
             logits = params['classifier'](self.dropout(F.gelu(middle)))
-            
+
             #outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
             outputs = (logits,)
 
@@ -1271,9 +1269,6 @@ class MyTextOnlyModel(BertPreTrainedModel):
 
     # For saving model weights
     def return_averaged_sd(self):
-        #for k, v in self.current_params.items():
-        #    for x, y in zip(v.parameters(), self.accumulated_params[k].parameters()):
-        #        x = y
         sd = self.state_dict()
         for k, v in self.current_params.items():
             for p_name_ in v.state_dict():

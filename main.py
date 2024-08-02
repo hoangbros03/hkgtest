@@ -336,7 +336,7 @@ def main():
     #    cache_dir=model_args.cache_dir,
     #)
 
-    model = MyTextOnlyModel.from_pretrained(model_args.model_name_or_path, config=config)
+    model = MyModel.from_pretrained(model_args.model_name_or_path, config=config)
 
     # Loading trained model parameters
     if not training_args.do_train and data_args.trained_model_file != 'N/A':
