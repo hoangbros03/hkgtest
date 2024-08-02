@@ -34,6 +34,8 @@ import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
 
+os.environ["WANDB_DISABLED"] = "true"
+
 import transformers
 from transformers import (
     AutoConfig,
