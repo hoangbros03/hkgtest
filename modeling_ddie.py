@@ -986,6 +986,10 @@ class MyModel(BertPreTrainedModel):
         self.cls_linear = nn.Linear(self.config.hidden_size, self.num_labels)
 
         classifier_input_size = 0
+        print("Use_cls": self.use_cls_rep)
+        print("Use_mention": self.use_mention_rep)
+        print("Use_kg": self.use_kg_rep)
+
         if self.use_cls_rep: classifier_input_size += self.config.hidden_size
         if self.use_mention_rep: classifier_input_size += 2*self.config.hidden_size
         if self.use_kg_rep: classifier_input_size += 2*self.config.hidden_size
