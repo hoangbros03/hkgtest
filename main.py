@@ -219,6 +219,9 @@ def main():
 
     print(training_args)
     training_args.eval_strategy = 'epoch'
+    training_args.save_strategy = 'epoch'
+    training_args.save_total_limit=5 
+    training_args.load_best_model_at_end = True
     if (
         os.path.exists(training_args.output_dir)
         and os.listdir(training_args.output_dir)
